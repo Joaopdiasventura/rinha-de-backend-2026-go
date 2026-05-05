@@ -16,11 +16,7 @@ services:
     mem_limit: 30m
 
   app1:
-    build:
-      context: .
-      target: final
-      args:
-        SHARD_ID: 0
+    image: jpplay/rinha-de-backend-2026
     expose:
       - "8080"
     environment:
@@ -32,11 +28,7 @@ services:
     mem_limit: 160m
 
   app2:
-    build:
-      context: .
-      target: final
-      args:
-        SHARD_ID: 1
+    image: jpplay/rinha-de-backend-2026
     expose:
       - "8080"
     environment:
