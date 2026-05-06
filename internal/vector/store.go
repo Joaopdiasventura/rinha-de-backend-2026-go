@@ -10,7 +10,7 @@ import (
 
 const Dimensions = 14
 const Neighbors = 5
-const SearchStride = 2
+const SearchStride = 1
 
 type InputVector [Dimensions]float64
 
@@ -142,11 +142,10 @@ func FraudScore(neighbors [Neighbors]Neighbor) float64 {
 
 func (s *Store) squaredDistance(index int, input InputVector) float64 {
 	offset := index * Dimensions
-	v := s.Vectors[offset : offset+Dimensions]
 	sum := 0.0
 
 	for i := range Dimensions {
-		diff := float64(v[i]) - input[i]
+		diff := float64(s.Vectors[offset+i]) - input[i]
 		sum += diff * diff
 	}
 
