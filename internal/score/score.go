@@ -3,7 +3,6 @@ package score
 import (
 	"context"
 	"errors"
-	"math"
 	"slices"
 	"time"
 
@@ -25,18 +24,10 @@ func NewService(store *vector.Store) *Service {
 }
 
 func (s *Service) ValidateScore(ctx context.Context, transaction dto.ValidateTransactionDTO) (dto.Score, error) {
-
 	input := buildVector(transaction)
 
-	results := make(chan [vector.Neighbors]vector.Neighbor, 1)
-
-	go func() {
-		results <- s.Store.Search(input)
-	}()
-
-	result := <-results
-
-	fraudScore := vector.FraudScore(result)
+	neighbors := s.Store.Search(input)
+	fraudScore := vector.FraudScore(neighbors)
 
 	return dto.Score{
 		Approved:   fraudScore < 0.6,
@@ -81,16 +72,15 @@ func clamp(value float64) float64 {
 		return 1
 	}
 
-	return round(value, 4)
+	return round(value)
 }
 
 func normalize(value float64) float64 {
-	return round(clamp(value), 4)
+	return round(clamp(value))
 }
 
-func round(value float64, precision int) float64 {
-	pow := math.Pow(10, float64(precision))
-	return math.Round(value*pow) / pow
+func round(value float64) float64 {
+	return float64(int(value*10000+0.5)) / 10000
 }
 
 func boolToFloat(value bool) float64 {
@@ -108,7 +98,7 @@ func normalizeWeekday(value time.Time) float64 {
 		return 1
 	}
 
-	return round(float64(int(weekday)-1)/6, 4)
+	return round(float64(int(weekday)-1)/6)
 }
 
 func mccRisk(mcc string) float64 {

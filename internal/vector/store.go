@@ -10,6 +10,7 @@ import (
 
 const Dimensions = 14
 const Neighbors = 5
+const SearchStride = 2
 
 type InputVector [Dimensions]float64
 
@@ -97,13 +98,19 @@ func FromSlice(values []float64) (InputVector, error) {
 
 func (s *Store) Search(input InputVector) [Neighbors]Neighbor {
 	best := emptyTopK()
+	worstDist := math.MaxFloat64
 
-	for i := 0; i < s.Count; i++ {
-		insertNeighbor(&best, Neighbor{
-			Distance: s.distance(i, input),
-			Label:    s.Labels[i],
-			Index:    i,
-		})
+	for i := 0; i < s.Count; i += SearchStride {
+		dist := s.squaredDistance(i, input)
+
+		if dist < worstDist {
+			insertNeighbor(&best, Neighbor{
+				Distance: dist,
+				Label:    s.Labels[i],
+				Index:    i,
+			})
+			worstDist = best[Neighbors-1].Distance
+		}
 	}
 
 	return best
@@ -133,16 +140,17 @@ func FraudScore(neighbors [Neighbors]Neighbor) float64 {
 	return float64(frauds) / Neighbors
 }
 
-func (s *Store) distance(index int, input InputVector) float64 {
+func (s *Store) squaredDistance(index int, input InputVector) float64 {
 	offset := index * Dimensions
+	v := s.Vectors[offset : offset+Dimensions]
 	sum := 0.0
 
 	for i := range Dimensions {
-		diff := float64(s.Vectors[offset+i]) - input[i]
+		diff := float64(v[i]) - input[i]
 		sum += diff * diff
 	}
 
-	return math.Sqrt(sum)
+	return sum
 }
 
 func emptyTopK() [Neighbors]Neighbor {
@@ -163,7 +171,7 @@ func insertNeighbor(best *[Neighbors]Neighbor, candidate Neighbor) {
 		return
 	}
 
-	for i := 0; i < Neighbors; i++ {
+	for i := range Neighbors {
 		if candidate.Distance < best[i].Distance {
 			copy(best[i+1:], best[i:Neighbors-1])
 			best[i] = candidate

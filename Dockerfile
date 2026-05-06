@@ -19,26 +19,21 @@ RUN --mount=type=bind,target=. \
     CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o /bin/shard ./cmd/shard
 
 FROM build AS shard
-ARG SHARD_ID=0
-
-RUN mkdir -p /out/resources
+RUN mkdir -p /out/resources/0 /out/resources/1
 
 RUN --mount=type=bind,target=. \
-    /bin/shard \
-    -input resources/references.json.gz \
-    -out /out/resources \
-    -shard-id ${SHARD_ID} \
-    -shard-count 2
+    /bin/shard -input resources/references.json.gz -out /out/resources/0 -shard-id 0 -shard-count 2 && \
+    /bin/shard -input resources/references.json.gz -out /out/resources/1 -shard-id 1 -shard-count 2
 
 FROM alpine:latest AS final
 
 RUN --mount=type=cache,target=/var/cache/apk \
     apk --update add \
-        ca-certificates \
-        tzdata \
-        wget \
-        && \
-        update-ca-certificates
+    ca-certificates \
+    tzdata \
+    wget \
+    && \
+    update-ca-certificates
 
 ARG UID=10001
 
@@ -52,14 +47,13 @@ RUN adduser \
     appuser
 
 COPY --from=build /bin/server /bin/server
-COPY --from=shard /out/resources/references.vec /app/resources/references.vec
-COPY --from=shard /out/resources/references.labels /app/resources/references.labels
+COPY --from=shard /out/resources /app/resources
 
 USER appuser
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=5s --timeout=2s --start-period=10s --retries=3 \
-  CMD wget --spider -q http://127.0.0.1:8080/ready || exit 1
+    CMD wget --spider -q http://127.0.0.1:8080/ready || exit 1
 
 ENTRYPOINT ["/bin/server"]
