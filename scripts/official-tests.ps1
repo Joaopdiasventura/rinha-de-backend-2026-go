@@ -95,9 +95,20 @@ try {
     Copy-Item (Join-Path $officialSrcDir "test/smoke.js") (Join-Path $k6WorkDir "test/smoke.js")
     Copy-Item (Join-Path $officialSrcDir "test/test.js") (Join-Path $k6WorkDir "test/test.js")
     Copy-Item (Join-Path $officialSrcDir "test/test-data.json") (Join-Path $k6WorkDir "test/test-data.json")
+    New-Item -ItemType File -Force -Path $resultsFile | Out-Null
 
     foreach ($file in @((Join-Path $k6WorkDir "test/smoke.js"), (Join-Path $k6WorkDir "test/test.js"))) {
         (Get-Content $file -Raw).Replace("http://localhost:9999", "http://nginx") | Set-Content $file
+    }
+
+    $dockerUserArgs = @()
+    $idCommand = Get-Command id -ErrorAction SilentlyContinue
+    if ($idCommand) {
+        $uid = (& id -u).Trim()
+        $gid = (& id -g).Trim()
+        if ($uid -and $gid) {
+            $dockerUserArgs = @("--user", "${uid}:${gid}")
+        }
     }
 
     docker compose config | Set-Content (Join-Path $ArtifactsDir "docker-compose-config.yml")
@@ -118,10 +129,10 @@ try {
     Assert-Shard "app2" "1" "84000000" "1500000"
 
     $mountPath = (Resolve-Path $k6WorkDir).Path
-    docker run --rm --network $networkName -e K6_NO_USAGE_REPORT=true -v "${mountPath}:/work" -w /work grafana/k6:latest run /work/test/smoke.js | Tee-Object -FilePath (Join-Path $ArtifactsDir "k6-smoke.txt")
+    docker run --rm @dockerUserArgs --network $networkName -e K6_NO_USAGE_REPORT=true -v "${mountPath}:/work" -w /work grafana/k6:latest run /work/test/smoke.js | Tee-Object -FilePath (Join-Path $ArtifactsDir "k6-smoke.txt")
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    docker run --rm --network $networkName -e K6_NO_USAGE_REPORT=true -v "${mountPath}:/work" -w /work grafana/k6:latest run /work/test/test.js | Tee-Object -FilePath (Join-Path $ArtifactsDir "k6-official.txt")
+    docker run --rm @dockerUserArgs --network $networkName -e K6_NO_USAGE_REPORT=true -v "${mountPath}:/work" -w /work grafana/k6:latest run /work/test/test.js | Tee-Object -FilePath (Join-Path $ArtifactsDir "k6-official.txt")
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     go run ./cmd/officialcheck -file $resultsFile | Tee-Object -FilePath (Join-Path $ArtifactsDir "official-summary.txt")

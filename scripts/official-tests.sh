@@ -57,6 +57,13 @@ cp "$OFFICIAL_SRC_DIR/test/test.js" "$K6_WORK_DIR/test/test.js"
 cp "$OFFICIAL_SRC_DIR/test/test-data.json" "$K6_WORK_DIR/test/test-data.json"
 sed -i.bak 's|http://localhost:9999|http://nginx|g' "$K6_WORK_DIR/test/smoke.js" "$K6_WORK_DIR/test/test.js"
 rm -f "$K6_WORK_DIR/test/"*.bak
+: > "$RESULTS_FILE"
+chmod -R a+rwX "$K6_WORK_DIR" || true
+
+DOCKER_USER_ARGS=()
+if command -v id >/dev/null 2>&1; then
+  DOCKER_USER_ARGS=(--user "$(id -u):$(id -g)")
+fi
 
 if [[ "$SKIP_COMPOSE_BUILD" -eq 1 ]]; then
   docker compose up -d --no-build
@@ -129,6 +136,7 @@ assert_shard app1 0 84000000 1500000
 assert_shard app2 1 84000000 1500000
 
 docker run --rm \
+  "${DOCKER_USER_ARGS[@]}" \
   --network "$NETWORK_NAME" \
   -e K6_NO_USAGE_REPORT=true \
   -v "$ROOT_DIR/$K6_WORK_DIR:/work" \
@@ -136,6 +144,7 @@ docker run --rm \
   grafana/k6:latest run /work/test/smoke.js | tee "$ARTIFACTS_DIR/k6-smoke.txt"
 
 docker run --rm \
+  "${DOCKER_USER_ARGS[@]}" \
   --network "$NETWORK_NAME" \
   -e K6_NO_USAGE_REPORT=true \
   -v "$ROOT_DIR/$K6_WORK_DIR:/work" \
