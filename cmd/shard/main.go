@@ -4,11 +4,14 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"flag"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Joaopdiasventura/rinha-de-backend-2026/internal/vector"
 )
 
 type Reference struct {
@@ -80,6 +83,10 @@ func main() {
 		}
 
 		if index%*shardCount == *shardID {
+			if len(ref.Vector) != vector.Dimensions {
+				panic(fmt.Errorf("invalid vector dimension at index %d: got %d want %d", index, len(ref.Vector), vector.Dimensions))
+			}
+
 			for _, value := range ref.Vector {
 				err = binary.Write(vecFile, binary.LittleEndian, value)
 				if err != nil {
@@ -87,10 +94,14 @@ func main() {
 				}
 			}
 
-			label := byte(0)
-
-			if ref.Label == "fraud" {
+			var label byte
+			switch ref.Label {
+			case "legit":
+				label = 0
+			case "fraud":
 				label = 1
+			default:
+				panic(fmt.Errorf("invalid label at index %d: %q", index, ref.Label))
 			}
 
 			_, err = labelFile.Write([]byte{label})

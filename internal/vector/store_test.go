@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -31,16 +32,16 @@ func TestMergeTopKPreservesGlobalOrdering(t *testing.T) {
 
 	for index, want := range wantDistances {
 		if got[index].Distance != want {
-			t.Fatalf("neighbor %d distance got %.2f want %.2f", index, got[index].Distance, want)
+			t.Fatalf("unexpected neighbor distance at index %d:\n  got:  %.2f\n  want: %.2f", index, got[index].Distance, want)
 		}
 
 		if got[index].Label != wantLabels[index] {
-			t.Fatalf("neighbor %d label got %d want %d", index, got[index].Label, wantLabels[index])
+			t.Fatalf("unexpected neighbor label at index %d:\n  got:  %d\n  want: %d", index, got[index].Label, wantLabels[index])
 		}
 	}
 
 	if score := FraudScore(got); score != 0.6 {
-		t.Fatalf("unexpected merged score: got %.1f want 0.6", score)
+		t.Fatalf("unexpected merged fraud_score:\n  got:  %.1f\n  want: %.1f", score, 0.6)
 	}
 }
 
@@ -50,15 +51,15 @@ func TestLoadRejectsCorruptedFiles(t *testing.T) {
 	labelPath := filepath.Join(tempDir, "references.labels")
 
 	if err := os.WriteFile(vecPath, []byte{1, 2, 3}, 0o600); err != nil {
-		t.Fatalf("write vec file: %v", err)
+		t.Fatalf("failed to write temporary vector file:\n  error: %v", err)
 	}
 
 	if err := os.WriteFile(labelPath, []byte{0}, 0o600); err != nil {
-		t.Fatalf("write label file: %v", err)
+		t.Fatalf("failed to write temporary label file:\n  error: %v", err)
 	}
 
 	if _, err := Load(vecPath, labelPath); err == nil {
-		t.Fatal("expected Load to reject misaligned vector file")
+		t.Fatal("expected Load to reject a misaligned vector file, but it succeeded")
 	}
 }
 
@@ -73,27 +74,49 @@ func TestLoadReadsAlignedDataset(t *testing.T) {
 	}
 
 	if err := os.WriteFile(vecPath, buffer, 0o600); err != nil {
-		t.Fatalf("write vec file: %v", err)
+		t.Fatalf("failed to write temporary vector file:\n  error: %v", err)
 	}
 
 	if err := os.WriteFile(labelPath, []byte{1}, 0o600); err != nil {
-		t.Fatalf("write label file: %v", err)
+		t.Fatalf("failed to write temporary label file:\n  error: %v", err)
 	}
 
 	store, err := Load(vecPath, labelPath)
 	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
+		t.Fatalf("Load returned an unexpected error:\n  error: %v", err)
 	}
 
 	if store.Count != 1 {
-		t.Fatalf("unexpected count: got %d want 1", store.Count)
+		t.Fatalf("unexpected vector count:\n  got:  %d\n  want: %d", store.Count, 1)
 	}
 
 	if store.Labels[0] != 1 {
-		t.Fatalf("unexpected label: got %d want 1", store.Labels[0])
+		t.Fatalf("unexpected label:\n  got:  %d\n  want: %d", store.Labels[0], 1)
 	}
 
 	if got := store.Search(InputVector{}); got[0].Index != 0 {
-		t.Fatalf("unexpected top neighbor index: got %d want 0", got[0].Index)
+		t.Fatalf("unexpected top neighbor index:\n  got:  %d\n  want: %d", got[0].Index, 0)
 	}
+}
+
+func TestSearchConcurrent(t *testing.T) {
+	store := benchmarkStore(2048)
+	input := benchmarkVector()
+
+	var group sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for j := 0; j < 128; j++ {
+				neighbors := store.Search(input)
+				if neighbors[0].Index < 0 {
+					t.Error("expected a valid nearest neighbor index, but got a negative index")
+					return
+				}
+			}
+		}()
+	}
+
+	group.Wait()
 }

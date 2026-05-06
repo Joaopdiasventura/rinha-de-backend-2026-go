@@ -49,9 +49,13 @@ RUN adduser \
 COPY --from=build /bin/server /bin/server
 COPY --from=shard /out/resources /app/resources
 
+ENV DIAGNOSTICS_ENABLED=0
+ENV DIAGNOSTICS_PORT=6060
+
 USER appuser
 
 EXPOSE 8080
+EXPOSE 6060
 
 HEALTHCHECK --interval=5s --timeout=2s --start-period=10s --retries=3 \
     CMD wget --spider -q http://127.0.0.1:8080/ready || exit 1

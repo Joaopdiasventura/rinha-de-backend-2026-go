@@ -2,6 +2,7 @@ package score
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func TestBuildVectorExamples(t *testing.T) {
 		want := vector.InputVector{0.0041, 0.1667, 0.05, 0.7826, 0.3333, -1, -1, 0.0292, 0.15, 0, 1, 0, 0.15, 0.006}
 
 		if got != want {
-			t.Fatalf("unexpected vector\n got=%v\nwant=%v", got, want)
+			t.Fatalf("unexpected vector:\n  got:  %v\n  want: %v", got, want)
 		}
 	})
 
@@ -74,7 +75,7 @@ func TestBuildVectorExamples(t *testing.T) {
 		want := vector.InputVector{0.9506, 0.8333, 1, 0.2174, 0.8333, -1, -1, 0.9523, 1, 0, 1, 1, 0.75, 0.0055}
 
 		if got != want {
-			t.Fatalf("unexpected vector\n got=%v\nwant=%v", got, want)
+			t.Fatalf("unexpected vector:\n  got:  %v\n  want: %v", got, want)
 		}
 	})
 }
@@ -95,15 +96,15 @@ func TestValidateScoreApprovesWhenFraudScoreBelowThreshold(t *testing.T) {
 
 	got, err := service.ValidateScore(context.Background(), tx)
 	if err != nil {
-		t.Fatalf("ValidateScore returned error: %v", err)
+		t.Fatalf("ValidateScore returned an unexpected error:\n  error: %v", err)
 	}
 
 	if got.FraudScore != 0.4 {
-		t.Fatalf("unexpected fraud_score: got %.1f want 0.4", got.FraudScore)
+		t.Fatalf("unexpected fraud_score:\n  got:  %.1f\n  want: %.1f", got.FraudScore, 0.4)
 	}
 
 	if !got.Approved {
-		t.Fatal("expected transaction to be approved")
+		t.Fatal("expected transaction to be approved, but it was rejected")
 	}
 }
 
@@ -123,16 +124,53 @@ func TestValidateScoreRejectsWhenFraudScoreReachesThreshold(t *testing.T) {
 
 	got, err := service.ValidateScore(context.Background(), tx)
 	if err != nil {
-		t.Fatalf("ValidateScore returned error: %v", err)
+		t.Fatalf("ValidateScore returned an unexpected error:\n  error: %v", err)
 	}
 
 	if got.FraudScore != 0.6 {
-		t.Fatalf("unexpected fraud_score: got %.1f want 0.6", got.FraudScore)
+		t.Fatalf("unexpected fraud_score:\n  got:  %.1f\n  want: %.1f", got.FraudScore, 0.6)
 	}
 
 	if got.Approved {
-		t.Fatal("expected transaction to be rejected")
+		t.Fatal("expected transaction to be rejected, but it was approved")
 	}
+}
+
+func TestValidateScoreConcurrent(t *testing.T) {
+	tx := validTransaction()
+	base := buildVector(tx)
+	store := buildStoreAround(base, []neighborSpec{
+		{Distance: 0.20, Label: 1},
+		{Distance: 0.21, Label: 1},
+		{Distance: 0.22, Label: 1},
+		{Distance: 0.23, Label: 0},
+		{Distance: 0.24, Label: 0},
+		{Distance: 0.25, Label: 0},
+		{Distance: 0.26, Label: 0},
+	})
+	service := NewService(store)
+
+	var group sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for j := 0; j < 128; j++ {
+				got, err := service.ValidateScore(context.Background(), tx)
+				if err != nil {
+					t.Errorf("ValidateScore returned an unexpected error:\n  error: %v", err)
+					return
+				}
+
+				if got.FraudScore != 0.6 {
+					t.Errorf("unexpected fraud_score:\n  got:  %.1f\n  want: %.1f", got.FraudScore, 0.6)
+					return
+				}
+			}
+		}()
+	}
+
+	group.Wait()
 }
 
 func validTransaction() dto.ValidateTransactionDTO {
@@ -173,7 +211,7 @@ func buildStoreAround(base vector.InputVector, specs []neighborSpec) *vector.Sto
 
 	for _, spec := range specs {
 		current := base
-		current[0] += spec.Distance
+		current[0] += float32(spec.Distance)
 
 		for _, value := range current {
 			values = append(values, float32(value))

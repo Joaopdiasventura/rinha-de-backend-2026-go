@@ -1,8 +1,9 @@
 services:
   nginx:
     image: nginx:1.27-alpine
+    restart: on-failure
     ports:
-      - "9999:80"
+      - "${PUBLIC_PORT:-9999}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -14,8 +15,16 @@ services:
       - app-network
     cpus: "0.10"
     mem_limit: 30m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ready >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   app1:
+    image: ${APP1_IMAGE:-rinha-de-backend-2026-app1:local}
+    restart: on-failure
     build:
       context: .
       target: final
@@ -23,15 +32,29 @@ services:
         SHARD_ID: 0
     expose:
       - "8080"
+      - "6060"
     environment:
-      - SHARD_ID=0
-      - SHARD_COUNT=2
+      SHARD_ID: "0"
+      SHARD_COUNT: "2"
+      GOMAXPROCS: "${GOMAXPROCS:-1}"
+      SEARCH_STRIDE: "${SEARCH_STRIDE:-8}"
+      EXACT_SEARCH_THRESHOLD: "${EXACT_SEARCH_THRESHOLD:-65536}"
+      DIAGNOSTICS_ENABLED: "${DIAGNOSTICS_ENABLED:-0}"
+      DIAGNOSTICS_PORT: "${DIAGNOSTICS_PORT:-6060}"
     networks:
       - app-network
     cpus: "0.45"
     mem_limit: 160m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
 
   app2:
+    image: ${APP2_IMAGE:-rinha-de-backend-2026-app2:local}
+    restart: on-failure
     build:
       context: .
       target: final
@@ -39,14 +62,27 @@ services:
         SHARD_ID: 1
     expose:
       - "8080"
+      - "6060"
     environment:
-      - SHARD_ID=1
-      - SHARD_COUNT=2
+      SHARD_ID: "1"
+      SHARD_COUNT: "2"
+      GOMAXPROCS: "${GOMAXPROCS:-1}"
+      SEARCH_STRIDE: "${SEARCH_STRIDE:-8}"
+      EXACT_SEARCH_THRESHOLD: "${EXACT_SEARCH_THRESHOLD:-65536}"
+      DIAGNOSTICS_ENABLED: "${DIAGNOSTICS_ENABLED:-0}"
+      DIAGNOSTICS_PORT: "${DIAGNOSTICS_PORT:-6060}"
     networks:
       - app-network
     cpus: "0.45"
     mem_limit: 160m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
 
 networks:
   app-network:
     driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-rinha-ci}-app-network

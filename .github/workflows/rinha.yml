@@ -1,0 +1,141 @@
+name: Rinha Validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25.6"
+  COMPOSE_PROJECT_NAME: rinha-ci
+  PUBLIC_PORT: "9999"
+  DOCKER_BUILDKIT: "1"
+  BUILDKIT_PROGRESS: plain
+  APP1_IMAGE: rinha-de-backend-2026-app1:ci
+  APP2_IMAGE: rinha-de-backend-2026-app2:ci
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Verify
+        run: bash ./scripts/verify.sh
+
+  race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Race
+        run: CGO_ENABLED=1 go test -race ./...
+
+  official-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: race
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build app1 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: final
+          build-args: |
+            SHARD_ID=0
+          load: true
+          tags: ${{ env.APP1_IMAGE }}
+          cache-from: type=gha,scope=app1
+          cache-to: type=gha,mode=max,scope=app1
+
+      - name: Build app2 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: final
+          build-args: |
+            SHARD_ID=1
+          load: true
+          tags: ${{ env.APP2_IMAGE }}
+          cache-from: type=gha,scope=app2
+          cache-to: type=gha,mode=max,scope=app2
+
+      - name: Official tests
+        run: bash ./scripts/official-tests.sh --skip-compose-build --skip-verify
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rinha-official-artifacts
+          path: .artifacts
+          if-no-files-found: warn
+
+  stress:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: official-e2e
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Stress suite
+        run: bash ./scripts/stress.sh --build
+
+      - name: Upload stress artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rinha-stress-artifacts
+          path: .artifacts
+          if-no-files-found: warn
